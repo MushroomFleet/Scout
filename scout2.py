@@ -45,6 +45,12 @@ class OperationMode(Enum):
     COPY = "copy"
 
 
+class SortMode(Enum):
+    """Enum for sorting modes."""
+    NORMAL = "normal"
+    DEEP = "deep"
+
+
 class FileOperation:
     """Class to handle file operations (move/copy) with error handling and rollback capability."""
     
@@ -106,6 +112,7 @@ class ReportGenerator:
                        skipped_files: int,
                        destination_path: Path,
                        operation_mode: OperationMode,
+                       sort_mode: SortMode,
                        failed_operations: List[Tuple[Path, Path, Exception]] = None) -> str:
         """Generate a report of the organization operation."""
         self.end_time = datetime.now()
@@ -116,6 +123,7 @@ class ReportGenerator:
             "timestamp": datetime.now().isoformat(),
             "duration_seconds": duration.total_seconds(),
             "operation_mode": operation_mode.value,
+            "sort_mode": sort_mode.value,
             "destination_path": str(destination_path),
             "files_processed": files_processed,
             "extensions_found": len(extensions_found),
@@ -198,6 +206,7 @@ class ReportGenerator:
             f"  {Fore.WHITE}Time completed:{Style.RESET_ALL} {report_data['timestamp']}",
             f"  {Fore.WHITE}Duration:{Style.RESET_ALL} {report_data['duration_seconds']:.2f} seconds",
             f"  {Fore.WHITE}Mode:{Style.RESET_ALL} {report_data['operation_mode'].upper()}",
+            f"  {Fore.WHITE}Sort Mode:{Style.RESET_ALL} {report_data['sort_mode'].upper()}",
             f"  {Fore.WHITE}Destination:{Style.RESET_ALL} {report_data['destination_path']}",
             f"",
             f"{Fore.YELLOW}Results:{Style.RESET_ALL}",
@@ -316,6 +325,22 @@ class UIManager:
             else:
                 print(f"{Fore.RED}Invalid choice. Please enter 1, 2, or 3.{Style.RESET_ALL}")
     
+    def get_sort_mode(self) -> SortMode:
+        """Prompt user to select sort mode."""
+        print(f"\n{Fore.CYAN}Select sort mode:{Style.RESET_ALL}")
+        print(f"  {Fore.YELLOW}1){Style.RESET_ALL} Normal (organize files in the source directory only)")
+        print(f"  {Fore.YELLOW}2){Style.RESET_ALL} DeepSort (recursively organize files in all subdirectories)")
+        
+        while True:
+            choice = input(f"{Fore.CYAN}Enter your choice [1-2] (default: 1):{Style.RESET_ALL} ").strip()
+            
+            if not choice or choice == "1":
+                return SortMode.NORMAL
+            elif choice == "2":
+                return SortMode.DEEP
+            else:
+                print(f"{Fore.RED}Invalid choice. Please enter 1 or 2.{Style.RESET_ALL}")
+    
     def create_progress_bar(self, total: int, desc: str) -> tqdm:
         """Create a tqdm progress bar with appropriate styling."""
         return tqdm(
@@ -363,6 +388,7 @@ class ScoutConfig:
             "last_target_path": str(Path.home()),
             "last_destination_path": str(Path.home() / "Organized"),
             "operation_mode": OperationMode.MOVE.value,
+            "sort_mode": SortMode.NORMAL.value,
             "report_format": "console",
             "use_colors": True
         }
@@ -377,12 +403,14 @@ class ScoutConfig:
                    target_path: Path, 
                    destination_path: Path,
                    operation_mode: OperationMode,
+                   sort_mode: SortMode,
                    report_format: str) -> None:
         """Save current configuration to file."""
         self.config.update({
             "last_target_path": str(target_path),
             "last_destination_path": str(destination_path),
             "operation_mode": operation_mode.value,
+            "sort_mode": sort_mode.value,
             "report_format": report_format
         })
         
@@ -414,6 +442,11 @@ class ScoutConfig:
     def get_use_colors(self) -> bool:
         """Get color usage preference."""
         return self.config.get("use_colors", True)
+    
+    def get_sort_mode(self) -> SortMode:
+        """Get preferred sort mode."""
+        mode_str = self.config.get("sort_mode", SortMode.NORMAL.value)
+        return SortMode.DEEP if mode_str == "deep" else SortMode.NORMAL
 
 
 class FileOrganizer:
@@ -436,18 +469,29 @@ class FileOrganizer:
         self.worker_count = min(32, (os.cpu_count() or 4) * 2)  # 2x CPU cores, max 32
         self.completion_event = threading.Event()
     
-    def get_files_from_target(self, target_path: Path) -> List[Path]:
-        """Get a list of files (not directories) from the target path."""
+    def get_files_from_target(self, target_path: Path, sort_mode: SortMode = SortMode.NORMAL) -> List[Path]:
+        """Get a list of files from the target path, with optional recursive scanning."""
         files = []
+        subdirs_processed = 0
         
         try:
-            # Only consider files in the root directory, ignore subdirectories
-            for item in os.listdir(target_path):
-                item_path = target_path / item
-                if item_path.is_file():
-                    files.append(item_path)
-                    
-            logger.info(f"Found {len(files)} files in {target_path}")
+            if sort_mode == SortMode.DEEP:
+                # Recursively walk through all subdirectories
+                for root, dirs, filenames in os.walk(target_path):
+                    subdirs_processed += len(dirs)
+                    root_path = Path(root)
+                    for filename in filenames:
+                        files.append(root_path / filename)
+                
+                logger.info(f"Found {len(files)} files in {target_path} and {subdirs_processed} subdirectories")
+            else:
+                # Only consider files in the root directory, ignore subdirectories
+                for item in os.listdir(target_path):
+                    item_path = target_path / item
+                    if item_path.is_file():
+                        files.append(item_path)
+                        
+                logger.info(f"Found {len(files)} files in {target_path}")
         except Exception as e:
             logger.error(f"Error accessing target directory: {e}")
             raise
@@ -588,7 +632,7 @@ class FileOrganizer:
         return self.moved_files, self.skipped_files
     
     def run(self, target_path: Path, destination_path: Path, operation_mode: OperationMode,
-           report_format: str) -> None:
+           sort_mode: SortMode, report_format: str) -> None:
         """Run the file organization process."""
         try:
             # Set operation mode and report format
@@ -596,7 +640,7 @@ class FileOrganizer:
             self.report_generator = ReportGenerator(output_format=report_format)
             
             # Get files from target directory
-            files = self.get_files_from_target(target_path)
+            files = self.get_files_from_target(target_path, sort_mode)
             
             if not files:
                 print(f"{Fore.YELLOW}No files found in the target directory.{Style.RESET_ALL}")
@@ -633,6 +677,7 @@ class FileOrganizer:
                 skipped_files=skipped_files,
                 destination_path=destination_path,
                 operation_mode=operation_mode,
+                sort_mode=sort_mode,
                 failed_operations=self.file_op.failed_operations
             )
             
@@ -643,6 +688,7 @@ class FileOrganizer:
                 target_path=target_path,
                 destination_path=destination_path,
                 operation_mode=operation_mode,
+                sort_mode=sort_mode,
                 report_format=report_format
             )
             
@@ -717,6 +763,14 @@ def parse_arguments() -> argparse.Namespace:
         help="Skip confirmation prompts"
     )
     
+    parser.add_argument(
+        "--deep-sort",
+        dest="deep_sort",
+        action="store_true",
+        default=False,
+        help="Enable DeepSort mode to recursively scan subdirectories"
+    )
+    
     return parser.parse_args()
 
 
@@ -774,9 +828,15 @@ def main() -> None:
         else:
             report_format = ui_manager.get_report_format()
         
+        # Get sort mode
+        if args.deep_sort:
+            sort_mode = SortMode.DEEP
+        else:
+            sort_mode = ui_manager.get_sort_mode()
+        
         # Create and run the file organizer
         organizer = FileOrganizer(ui_manager, config)
-        organizer.run(source_path, destination_path, operation_mode, report_format)
+        organizer.run(source_path, destination_path, operation_mode, sort_mode, report_format)
         
     except KeyboardInterrupt:
         print(f"\n{Fore.YELLOW}Operation cancelled by user.{Style.RESET_ALL}")

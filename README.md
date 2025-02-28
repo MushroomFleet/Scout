@@ -14,6 +14,7 @@ Scout2 is an enhanced version with numerous improvements:
 - 🔄 **Rollback capability** - Automatic recovery from failed operations
 - 📋 **Command-line interface** - Run with options without interactive prompts
 - 🔧 **Better error handling** - Improved stability and reliability
+- 🌲 **DeepSort Mode** - Recursively scan and organize files from subdirectories
 
 ## What is Scout? 🤔
 
@@ -27,7 +28,7 @@ Scout will **look** 👀 at your target directory, **create** 🏗️ extension-
 - 🧠 **Smart sorting** - Creates subdirectories for each extension found
 - 🚀 **Progress tracking** - Visual progress bars show you exactly what's happening
 - 🔄 **Conflict resolution** - Intelligently handles duplicate filenames
-- 🚫 **Subdirectory ignoring** - Focuses only on files in the target directory
+- 🌲 **DeepSort Mode** - Recursively scan and organize files from all subdirectories
 - 🔍 **File extension analysis** - Identifies all unique file types in your directories
 - 📊 **Summary statistics** - Provides a complete breakdown when finished
 
@@ -86,20 +87,54 @@ venv\Scripts\activate
 source venv/bin/activate
 
 # Run the script
-python scout.py
+python scout2.py
 ```
+
+### Command-line Options 🛠️
+
+Scout2 offers several command-line options for advanced usage:
+
+```bash
+python scout2.py --help  # Show all available options
+
+# Core options
+python scout2.py -s SOURCE_DIR -d DESTINATION_DIR  # Specify source and destination
+python scout2.py -m copy  # Use copy mode instead of move
+python scout2.py --deep-sort  # Enable DeepSort mode to scan subdirectories
+
+# Additional options
+python scout2.py -r json  # Generate a JSON report
+python scout2.py --no-color  # Disable colored output
+python scout2.py --no-confirm  # Skip confirmation prompts
+```
+
+### Using DeepSort Mode 🌲
+
+DeepSort mode recursively scans all subdirectories of your source folder, organizing all found files by their extensions:
+
+1. **Via command line**: Add the `--deep-sort` flag when running Scout2
+   ```bash
+   python scout2.py --deep-sort
+   ```
+
+2. **Interactive mode**: When prompted, select "DeepSort" mode (option 2)
+   ```
+   Select sort mode:
+     1) Normal (organize files in the source directory only)
+     2) DeepSort (recursively organize files in all subdirectories)
+   ```
 
 ## 🧩 How It Works
 
 Scout will:
 
-1. 🔍 Scan your specified source directory
+1. 🔍 Scan your specified source directory (with DeepSort: including all subdirectories)
 2. 📊 Identify all unique file extensions
 3. 🏗️ Create folders for each extension in your destination directory
 4. 🚚 Move each file to its corresponding extension folder
 5. 📝 Provide a detailed summary when complete
 
-### Example 📋
+### Example: Normal Mode 📋
 
 If your source directory contains:
 - document.pdf
@@ -121,6 +156,37 @@ destination/
 └── zip/
     └── archive.zip
 ```
+
+### Example: DeepSort Mode 🌲
+
+If your source directory has this nested structure:
+```
+source/
+├── document.pdf
+├── photos/
+│   ├── vacation.jpg
+│   └── family.jpg
+└── work/
+    ├── spreadsheet.xlsx
+    └── documents/
+        └── report.docx
+```
+
+With DeepSort Mode enabled, Scout will organize ALL files from ALL subdirectories:
+```
+destination/
+├── pdf/
+│   └── document.pdf
+├── jpg/
+│   ├── vacation.jpg
+│   └── family.jpg
+├── xlsx/
+│   └── spreadsheet.xlsx
+└── docx/
+│   └── report.docx
+```
+
+This makes DeepSort Mode perfect for cleaning up complex directory structures and finding all files of a certain type regardless of where they're hidden!
 
 ## 🐞 Troubleshooting
 
