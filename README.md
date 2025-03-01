@@ -15,6 +15,7 @@ Scout2 is an enhanced version with numerous improvements:
 - 📋 **Command-line interface** - Run with options without interactive prompts
 - 🔧 **Better error handling** - Improved stability and reliability
 - 🌲 **DeepSort Mode** - Recursively scan and organize files from subdirectories
+- 🧊 **DeepFreeze Mode** - Organize files while preserving folder structure in "_Folders" directory
 
 ## What is Scout? 🤔
 
@@ -29,6 +30,7 @@ Scout will **look** 👀 at your target directory, **create** 🏗️ extension-
 - 🚀 **Progress tracking** - Visual progress bars show you exactly what's happening
 - 🔄 **Conflict resolution** - Intelligently handles duplicate filenames
 - 🌲 **DeepSort Mode** - Recursively scan and organize files from all subdirectories
+- 🧊 **DeepFreeze Mode** - Preserves folder structures while organizing loose files
 - 🔍 **File extension analysis** - Identifies all unique file types in your directories
 - 📊 **Summary statistics** - Provides a complete breakdown when finished
 
@@ -101,6 +103,7 @@ python scout2.py --help  # Show all available options
 python scout2.py -s SOURCE_DIR -d DESTINATION_DIR  # Specify source and destination
 python scout2.py -m copy  # Use copy mode instead of move
 python scout2.py --deep-sort  # Enable DeepSort mode to scan subdirectories
+python scout2.py --deep-freeze  # Enable DeepFreeze mode to preserve folder structure
 
 # Additional options
 python scout2.py -r json  # Generate a JSON report
@@ -122,7 +125,30 @@ DeepSort mode recursively scans all subdirectories of your source folder, organi
    Select sort mode:
      1) Normal (organize files in the source directory only)
      2) DeepSort (recursively organize files in all subdirectories)
+     3) DeepFreeze (organize files and move subdirectories to '_Folders')
    ```
+
+### Using DeepFreeze Mode 🧊
+
+DeepFreeze mode organizes loose files like Normal mode but preserves folder structures by moving subdirectories to a special "_Folders" directory:
+
+1. **Via command line**: Add the `--deep-freeze` flag when running Scout2
+   ```bash
+   python scout2.py --deep-freeze
+   ```
+
+2. **Interactive mode**: When prompted, select "DeepFreeze" mode (option 3)
+   ```
+   Select sort mode:
+     1) Normal (organize files in the source directory only)
+     2) DeepSort (recursively organize files in all subdirectories)
+     3) DeepFreeze (organize files and move subdirectories to '_Folders')
+   ```
+
+DeepFreeze offers the perfect balance between organization and preservation, ideal when you want to:
+- Clean up loose files while keeping important folder structures intact
+- Preserve project hierarchies while sorting miscellaneous files
+- Maintain folder naming and relationships while organizing by extension
 
 ## 🧩 How It Works
 
@@ -187,6 +213,41 @@ destination/
 ```
 
 This makes DeepSort Mode perfect for cleaning up complex directory structures and finding all files of a certain type regardless of where they're hidden!
+
+### Example: DeepFreeze Mode 🧊
+
+If your source directory has this nested structure:
+```
+source/
+├── document.pdf
+├── notes.txt
+├── photos/
+│   ├── vacation.jpg
+│   └── family.jpg
+└── work/
+    ├── spreadsheet.xlsx
+    └── documents/
+        └── report.docx
+```
+
+With DeepFreeze Mode enabled, Scout will organize the loose files by extension while preserving folder structures:
+```
+destination/
+├── pdf/
+│   └── document.pdf
+├── txt/
+│   └── notes.txt
+└── _Folders/
+    ├── photos/
+    │   ├── vacation.jpg
+    │   └── family.jpg
+    └── work/
+        ├── spreadsheet.xlsx
+        └── documents/
+            └── report.docx
+```
+
+DeepFreeze Mode is ideal when you want to organize loose files in your source directory while maintaining the structure and organization of your existing folders!
 
 ## 🐞 Troubleshooting
 

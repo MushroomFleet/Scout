@@ -49,6 +49,7 @@ class SortMode(Enum):
     """Enum for sorting modes."""
     NORMAL = "normal"
     DEEP = "deep"
+    DEEPFREEZE = "deepfreeze"
 
 
 class FileOperation:
@@ -113,7 +114,8 @@ class ReportGenerator:
                        destination_path: Path,
                        operation_mode: OperationMode,
                        sort_mode: SortMode,
-                       failed_operations: List[Tuple[Path, Path, Exception]] = None) -> str:
+                       failed_operations: List[Tuple[Path, Path, Exception]] = None,
+                       folders_moved: int = 0) -> str:
         """Generate a report of the organization operation."""
         self.end_time = datetime.now()
         duration = self.end_time - self.start_time
@@ -129,6 +131,7 @@ class ReportGenerator:
             "extensions_found": len(extensions_found),
             "files_moved": moved_files,
             "files_skipped": skipped_files,
+            "folders_moved": folders_moved,
             "extensions_list": sorted(list(extensions_found)),
             "failed_operations": [(str(src), str(dest), str(err)) 
                                  for src, dest, err in (failed_operations or [])]
@@ -160,10 +163,12 @@ class ReportGenerator:
             "Timestamp": report_data["timestamp"],
             "Duration (seconds)": report_data["duration_seconds"],
             "Operation Mode": report_data["operation_mode"],
+            "Sort Mode": report_data["sort_mode"],
             "Destination Path": report_data["destination_path"],
             "Files Processed": report_data["files_processed"],
             "Extensions Found": report_data["extensions_found"],
             "Files Moved/Copied": report_data["files_moved"],
+            "Folders Moved/Copied": report_data["folders_moved"],
             "Files Skipped": report_data["files_skipped"],
             "Extensions": ", ".join(report_data["extensions_list"]),
             "Failed Operations": len(report_data["failed_operations"])
@@ -214,6 +219,10 @@ class ReportGenerator:
             f"  {Fore.GREEN}✓ Unique extensions found:{Style.RESET_ALL} {report_data['extensions_found']}",
             f"  {Fore.GREEN}✓ Files successfully {operation_word}:{Style.RESET_ALL} {report_data['files_moved']}",
         ]
+        
+        # Add folders moved in DeepFreeze mode
+        if report_data["folders_moved"] > 0:
+            report.append(f"  {Fore.GREEN}✓ Folders {operation_word}:{Style.RESET_ALL} {report_data['folders_moved']}")
         
         if report_data["files_skipped"] > 0:
             report.append(f"  {Fore.RED}✗ Files skipped:{Style.RESET_ALL} {report_data['files_skipped']}")
@@ -330,16 +339,19 @@ class UIManager:
         print(f"\n{Fore.CYAN}Select sort mode:{Style.RESET_ALL}")
         print(f"  {Fore.YELLOW}1){Style.RESET_ALL} Normal (organize files in the source directory only)")
         print(f"  {Fore.YELLOW}2){Style.RESET_ALL} DeepSort (recursively organize files in all subdirectories)")
+        print(f"  {Fore.YELLOW}3){Style.RESET_ALL} DeepFreeze (organize files and move subdirectories to '_Folders')")
         
         while True:
-            choice = input(f"{Fore.CYAN}Enter your choice [1-2] (default: 1):{Style.RESET_ALL} ").strip()
+            choice = input(f"{Fore.CYAN}Enter your choice [1-3] (default: 1):{Style.RESET_ALL} ").strip()
             
             if not choice or choice == "1":
                 return SortMode.NORMAL
             elif choice == "2":
                 return SortMode.DEEP
+            elif choice == "3":
+                return SortMode.DEEPFREEZE
             else:
-                print(f"{Fore.RED}Invalid choice. Please enter 1 or 2.{Style.RESET_ALL}")
+                print(f"{Fore.RED}Invalid choice. Please enter 1, 2, or 3.{Style.RESET_ALL}")
     
     def create_progress_bar(self, total: int, desc: str) -> tqdm:
         """Create a tqdm progress bar with appropriate styling."""
@@ -446,7 +458,12 @@ class ScoutConfig:
     def get_sort_mode(self) -> SortMode:
         """Get preferred sort mode."""
         mode_str = self.config.get("sort_mode", SortMode.NORMAL.value)
-        return SortMode.DEEP if mode_str == "deep" else SortMode.NORMAL
+        if mode_str == "deep":
+            return SortMode.DEEP
+        elif mode_str == "deepfreeze":
+            return SortMode.DEEPFREEZE
+        else:
+            return SortMode.NORMAL
 
 
 class FileOrganizer:
@@ -497,6 +514,59 @@ class FileOrganizer:
             raise
             
         return files
+        
+    def process_deepfreeze_folders(self, source_path: Path, destination_path: Path) -> int:
+        """
+        Process folders in DeepFreeze mode by moving them to a '_Folders' directory.
+        
+        Args:
+            source_path: The source directory path
+            destination_path: The destination directory path
+            
+        Returns:
+            Number of directories processed
+        """
+        # Create the _Folders directory in the destination
+        folders_dir = destination_path / "_Folders"
+        os.makedirs(folders_dir, exist_ok=True)
+        
+        folders_moved = 0
+        
+        # Find all immediate subdirectories in the source
+        for item in os.listdir(source_path):
+            item_path = source_path / item
+            
+            if item_path.is_dir():
+                # Determine destination folder path
+                dest_folder = folders_dir / item
+                
+                # Handle duplicate folder names
+                counter = 1
+                original_name = item
+                while dest_folder.exists():
+                    new_name = f"{original_name}_{counter}"
+                    dest_folder = folders_dir / new_name
+                    counter += 1
+                
+                try:
+                    # Move the folder and its contents
+                    if self.file_op.mode == OperationMode.MOVE:
+                        shutil.move(str(item_path), str(dest_folder))
+                    else:  # COPY mode
+                        shutil.copytree(str(item_path), str(dest_folder))
+                    
+                    # Log operation
+                    self.file_op.operations_log.append((item_path, dest_folder))
+                    
+                    folders_moved += 1
+                    logger.info(f"Successfully {self.file_op.mode.value}d folder {item_path} to {dest_folder}")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to {self.file_op.mode.value} folder {item_path} to {dest_folder}: {e}")
+                    self.file_op.failed_operations.append((item_path, dest_folder, e))
+        
+        logger.info(f"{self.file_op.mode.value.capitalize()}d {folders_moved} folders to {folders_dir}")
+        return folders_moved
     
     def get_file_extensions(self, files: List[Path]) -> Set[str]:
         """Extract unique file extensions from a list of files."""
@@ -669,6 +739,14 @@ class FileOrganizer:
             # Process files
             moved_files, skipped_files = self.process_files(files, extension_dirs)
             
+            # Process folders if in DeepFreeze mode
+            folders_moved = 0
+            if sort_mode == SortMode.DEEPFREEZE:
+                print(f"{Fore.GREEN}Processing folders in DeepFreeze mode...{Style.RESET_ALL}")
+                folders_moved = self.process_deepfreeze_folders(target_path, destination_path)
+                if folders_moved > 0:
+                    print(f"{Fore.GREEN}Successfully {self.file_op.mode.value}d {folders_moved} folders to {destination_path / '_Folders'}{Style.RESET_ALL}")
+            
             # Generate and display report
             report = self.report_generator.generate_report(
                 files_processed=self.files_processed,
@@ -678,7 +756,8 @@ class FileOrganizer:
                 destination_path=destination_path,
                 operation_mode=operation_mode,
                 sort_mode=sort_mode,
-                failed_operations=self.file_op.failed_operations
+                failed_operations=self.file_op.failed_operations,
+                folders_moved=folders_moved
             )
             
             print(report)
@@ -771,6 +850,14 @@ def parse_arguments() -> argparse.Namespace:
         help="Enable DeepSort mode to recursively scan subdirectories"
     )
     
+    parser.add_argument(
+        "--deep-freeze",
+        dest="deep_freeze",
+        action="store_true",
+        default=False,
+        help="Enable DeepFreeze mode to organize files and move subdirectories to '_Folders'"
+    )
+    
     return parser.parse_args()
 
 
@@ -829,7 +916,9 @@ def main() -> None:
             report_format = ui_manager.get_report_format()
         
         # Get sort mode
-        if args.deep_sort:
+        if args.deep_freeze:
+            sort_mode = SortMode.DEEPFREEZE
+        elif args.deep_sort:
             sort_mode = SortMode.DEEP
         else:
             sort_mode = ui_manager.get_sort_mode()
